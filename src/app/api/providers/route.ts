@@ -1,5 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { providers as seedProviders } from "@/data/seed-data";
+
+interface Provider {
+  name: string;
+  slug: string;
+  description: string | null;
+  address: string;
+  borough: string;
+  postcode: string;
+  latitude: number;
+  longitude: number;
+  websiteUrl: string | null;
+  phone: string | null;
+  priceMin: number | null;
+  priceMax: number | null;
+  pricePackage: number | null;
+  minCapacity: number;
+  maxCapacity: number;
+  ageMin: number;
+  ageMax: number;
+  activities: string;
+  isIndoor: boolean;
+  isOutdoor: boolean;
+  imageUrl: string | null;
+  features: string | null;
+}
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3959;
@@ -30,95 +55,67 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "200");
 
-  const where: any = {};
+  let providers: (Provider & { distance?: number | null })[] = [...seedProviders];
 
   if (borough) {
-    where.borough = borough;
+    providers = providers.filter(p => p.borough.toLowerCase() === borough.toLowerCase());
   }
 
   if (ageMin && ageMax) {
-    where.ageMin = { lte: parseInt(ageMax) };
-    where.ageMax = { gte: parseInt(ageMin) };
+    const minAge = parseInt(ageMin);
+    const maxAge = parseInt(ageMax);
+    providers = providers.filter(p => p.ageMin <= maxAge && p.ageMax >= minAge);
   }
 
   if (sizeMin && sizeMax) {
-    where.minCapacity = { lte: parseInt(sizeMax) };
-    where.maxCapacity = { gte: parseInt(sizeMin) };
+    const minSize = parseInt(sizeMin);
+    const maxSize = parseInt(sizeMax);
+    providers = providers.filter(p => p.minCapacity <= maxSize && p.maxCapacity >= minSize);
   }
 
   if (activities.length > 0) {
-    for (const activity of activities) {
-      where.activities = { contains: activity };
-    }
-  }
-
-  let orderBy: any = { name: "asc" };
-  if (sortBy === "price-asc") {
-    orderBy = { priceMin: "asc" };
-  } else if (sortBy === "price-desc") {
-    orderBy = { priceMin: "desc" };
-  } else if (sortBy === "borough") {
-    orderBy = { borough: "asc" };
-  }
-
-  try {
-    let [providers, total] = await Promise.all([
-      prisma.provider.findMany({
-        where,
-        orderBy,
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.provider.count({ where }),
-    ]);
-
-    if (userLat && userLng && radius) {
-      const userLatNum = parseFloat(userLat);
-      const userLngNum = parseFloat(userLng);
-      const radiusNum = parseFloat(radius);
-
-      const providersWithDistance = providers.map(provider => ({
-        ...provider,
-        distance: provider.latitude && provider.longitude 
-          ? calculateDistance(userLatNum, userLngNum, provider.latitude, provider.longitude)
-          : null
-      } as typeof provider & { distance: number | null }));
-
-      const filteredProviders = providersWithDistance.filter(p => p.distance !== null && p.distance <= radiusNum);
-
-      if (sortBy === "distance") {
-        filteredProviders.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-      }
-      
-      providers = filteredProviders;
-      total = filteredProviders.length;
-    } else if (userLat && userLng) {
-      providers = providers.map(provider => ({
-        ...provider,
-        distance: provider.latitude && provider.longitude 
-          ? calculateDistance(parseFloat(userLat), parseFloat(userLng), provider.latitude, provider.longitude)
-          : null
-      } as typeof provider & { distance: number | null }));
-
-      if (sortBy === "distance") {
-        (providers as Array<typeof providers[0] & { distance: number | null }>).sort((a, b) => (a.distance || 0) - (b.distance || 0));
-      }
-    }
-
-    return NextResponse.json({
-      providers,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+    providers = providers.filter(p => {
+      const providerActivities = JSON.parse(p.activities);
+      return activities.some(act => providerActivities.includes(act));
     });
-  } catch (error) {
-    console.error("Search error:", error);
-    return NextResponse.json(
-      { error: "Failed to search providers" },
-      { status: 500 }
-    );
   }
+
+  if (userLat && userLng) {
+    const userLatNum = parseFloat(userLat);
+    const userLngNum = parseFloat(userLng);
+    
+    providers = providers.map(provider => ({
+      ...provider,
+      distance: calculateDistance(userLatNum, userLngNum, provider.latitude, provider.longitude)
+    }));
+
+    if (radius) {
+      const radiusNum = parseFloat(radius);
+      providers = providers.filter(p => (p.distance || 0) <= radiusNum);
+    }
+  }
+
+  if (sortBy === "price-asc") {
+    providers.sort((a, b) => (a.priceMin || 0) - (b.priceMin || 0));
+  } else if (sortBy === "price-desc") {
+    providers.sort((a, b) => (b.priceMin || 0) - (a.priceMin || 0));
+  } else if (sortBy === "distance" && userLat && userLng) {
+    providers.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+  } else {
+    providers.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const total = providers.length;
+  const startIndex = (page - 1) * limit;
+  const paginatedProviders = providers.slice(startIndex, startIndex + limit);
+
+  return NextResponse.json({
+    providers: paginatedProviders,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
 }
