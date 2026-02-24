@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Provider {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  description  String?
+  address      String
+  borough      String
+  postcode     String
+  latitude     Float
+  longitude    Float
+  websiteUrl   String?
+  phone        String?
+  priceMin     Int?
+  priceMax     Int?
+  pricePackage Int?
+  minCapacity  Int
+  maxCapacity  Int
+  ageMin       Int
+  ageMax       Int
+  activities   String
+  isIndoor     Boolean  @default(false)
+  isOutdoor    Boolean  @default(false)
+  imageUrl     String?
+  features     String?
+  lastVerified DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

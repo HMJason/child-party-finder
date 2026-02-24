@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.vercel/
+*.log
+.env
+.env.local
+.env.production.local
+.DS_Store
+*.pem
+prisma/*.db
+prisma/*.db-journal
